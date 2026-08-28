@@ -61,6 +61,37 @@ usuario profesional (tú) debe crearse a mano, por ejemplo con un script
 `prisma db seed`, o insertándolo directamente desde Supabase Table Editor
 con el hash de contraseña generado con bcrypt.
 
+## Sistema de diseño
+
+Identidad real de Mineuri, no una propuesta genérica:
+
+- **Color de marca**: índigo `#4C5BFF` (de mineuri.com), + teal `#2BC5AE` y
+  coral `#F2543D` (del logo) como acentos puntuales — nunca como bloque
+  grande y saturado
+- **Tipografía** (regla fija: "Merriweather habla, Sora trabaja"):
+  - `--font-brand` (Merriweather) → solo H1/H2, titulares que dan
+    personalidad a la marca
+  - `--font-ui` (Sora) → todo lo demás: H3, botones, formularios,
+    instrucciones de actividades, navegación
+  - Cargadas vía `next/font` en `layout.tsx` (autohospedadas, sin depender
+    de la CDN de Google en cada visita)
+- **Accesibilidad, reglas fijas**:
+  - Nunca peso de fuente < 500 en texto con función
+  - Nunca contenido clínico relevante (nombres, resultados) < 16px
+  - Nunca mayúsculas completas en párrafos (solo en etiquetas cortas tipo
+    "PRÓXIMAS CITAS")
+  - Nunca cursiva para instrucciones importantes
+  - Line-height 1.2 en titulares, 1.55 en cuerpo, hasta 1.6-1.7 en
+    instrucciones de actividades cognitivas
+- Todos los tokens están en `src/app/globals.css` — para cambiar un color
+  o fuente dentro de un año, se cambia en un solo sitio, no en 200
+  componentes
+
+**Pendiente**: este sistema solo está aplicado en la página de login por
+ahora. El resto de páginas (dashboard, ficha de paciente, etc.) siguen
+siendo placeholders sin estilo — se irán vistiendo a medida que tengan
+contenido real.
+
 ## Puesta en marcha con Supabase
 
 1. Crear proyecto en Supabase eligiendo **región Frankfurt (eu-central-1)** —
