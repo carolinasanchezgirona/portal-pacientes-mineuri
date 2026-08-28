@@ -1,0 +1,274 @@
+// ============================================================
+// Área de Pacientes — Modelo de datos
+// PostgreSQL (usar proveedor con servidores en la UE)
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Conexión agrupada (pooling, puerto 6543) — la que usa la app en tiempo de ejecución
+  url       = env("DATABASE_URL")
+  // Conexión directa (puerto 5432) — solo la usa Prisma para migraciones
+  directUrl = env("DIRECT_URL")
+}
+
+// ------------------------------------------------------------
+// Usuarios y roles
+// ------------------------------------------------------------
+
+enum Rol {
+  PROFESIONAL
+  PACIENTE
+}
+
+model Usuario {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  rol           Rol
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now())
+  ultimoAcceso  DateTime?
+
+  paciente      Paciente?      // solo si rol = PACIENTE
+  logsAcceso    LogAcceso[]
+
+  @@map("usuarios")
+}
+
+model Paciente {
+  id              String   @id @default(cuid())
+  usuarioId       String   @unique
+  usuario         Usuario  @relation(fields: [usuarioId], references: [id])
+
+  nombre          String
+  apellidos       String
+  fechaNacimiento DateTime?
+  telefono        String?
+
+  // Invitación (alta manual por la profesional)
+  invitacionToken   String?  @unique
+  invitacionEnviada DateTime?
+  invitacionAceptada DateTime?
+
+  creadoEn        DateTime @default(now())
+
+  citas               Cita[]
+  consentimientosFirmados ConsentimientoFirmado[]
+  testsRespuestas     TestRespuesta[]
+  tecnicasAsignadas   TecnicaAsignada[]
+  notasSesion         NotaSesion[]
+
+  @@map("pacientes")
+}
+
+// ------------------------------------------------------------
+// Agenda / Citas
+// ------------------------------------------------------------
+
+enum ModalidadCita {
+  PRESENCIAL
+  ONLINE
+}
+
+enum EstadoCita {
+  CONFIRMADA
+  CANCELADA
+  COMPLETADA
+  NO_ASISTIO
+}
+
+model DisponibilidadRecurrente {
+  id            String   @id @default(cuid())
+  diaSemana     Int      // 0 = domingo ... 6 = sábado
+  horaInicio    String   // "10:00"
+  horaFin       String   // "14:00"
+  modalidades   ModalidadCita[]
+  activo        Boolean  @default(true)
+
+  @@map("disponibilidad_recurrente")
+}
+
+model BloqueoAgenda {
+  id        String   @id @default(cuid())
+  fechaInicio DateTime
+  fechaFin    DateTime
+  motivo      String?
+
+  @@map("bloqueos_agenda")
+}
+
+model Cita {
+  id            String        @id @default(cuid())
+  pacienteId    String
+  paciente      Paciente      @relation(fields: [pacienteId], references: [id])
+
+  fechaHora     DateTime
+  duracionMin   Int           @default(45)
+  modalidad     ModalidadCita
+  estado        EstadoCita    @default(CONFIRMADA)
+  enlaceVideollamada String?
+  direccion     String?
+
+  creadaEn      DateTime      @default(now())
+  canceladaEn   DateTime?
+  notaSesion    NotaSesion?
+
+  @@map("citas")
+}
+
+model NotaSesion {
+  id        String   @id @default(cuid())
+  citaId    String   @unique
+  cita      Cita     @relation(fields: [citaId], references: [id])
+  pacienteId String
+  paciente  Paciente @relation(fields: [pacienteId], references: [id])
+
+  contenido String   // notas clínicas privadas, solo visibles por la profesional
+  visibleParaPaciente Boolean @default(false)
+  creadaEn  DateTime @default(now())
+
+  @@map("notas_sesion")
+}
+
+// ------------------------------------------------------------
+// Consentimientos
+// ------------------------------------------------------------
+
+model ConsentimientoPlantilla {
+  id          String   @id @default(cuid())
+  titulo      String
+  version     String   // ej. "1.0", "2.0"
+  texto       String   // contenido completo del consentimiento
+  obligatorio Boolean  @default(true)
+  bloqueante  Boolean  @default(false) // si true, impide reservar cita/iniciar sesión hasta firmar
+  creadaEn    DateTime @default(now())
+  activa      Boolean  @default(true)
+
+  firmas      ConsentimientoFirmado[]
+
+  @@map("consentimientos_plantillas")
+}
+
+model ConsentimientoFirmado {
+  id              String   @id @default(cuid())
+  pacienteId      String
+  paciente        Paciente @relation(fields: [pacienteId], references: [id])
+  plantillaId     String
+  plantilla       ConsentimientoPlantilla @relation(fields: [plantillaId], references: [id])
+
+  firmaImagenUrl  String   // firma dibujada, almacenada como imagen/documento
+  textoFirmado    String   // copia inmutable del texto exacto firmado
+  versionFirmada  String
+  firmadoEn       DateTime @default(now())
+  ipFirma         String
+  documentoPdfUrl String?  // PDF generado con evidencia completa
+
+  revocadoEn      DateTime?
+  motivoRevocacion String?
+
+  @@map("consentimientos_firmados")
+}
+
+// ------------------------------------------------------------
+// Tests
+// ------------------------------------------------------------
+
+enum TipoTest {
+  PROPIO_DIGITAL      // se autopuntúa dentro de la app
+  COMERCIAL_EXTERNO   // solo se registra el resultado, no el contenido
+}
+
+enum TipoCorreccion {
+  AUTOMATICA
+  MANUAL
+}
+
+model TestBiblioteca {
+  id              String         @id @default(cuid())
+  nombre          String
+  tipoTest        TipoTest
+  tipoCorreccion  TipoCorreccion
+  itemsJson       Json?          // solo si PROPIO_DIGITAL: preguntas/ítems
+  baremoJson      Json?          // solo si PROPIO_DIGITAL y AUTOMATICA: reglas de puntuación
+  activo          Boolean        @default(true)
+  creadoEn        DateTime       @default(now())
+
+  respuestas      TestRespuesta[]
+
+  @@map("tests_biblioteca")
+}
+
+model TestRespuesta {
+  id              String   @id @default(cuid())
+  pacienteId      String
+  paciente        Paciente @relation(fields: [pacienteId], references: [id])
+  testId          String
+  test            TestBiblioteca @relation(fields: [testId], references: [id])
+
+  asignadoEn      DateTime @default(now())
+  respondidoEn    DateTime?
+
+  // Caso PROPIO_DIGITAL
+  respuestasJson  Json?    // respuestas en bruto del paciente
+  puntuacionAutomatica Json? // resultado calculado por el motor (si AUTOMATICA)
+
+  // Caso COMERCIAL_EXTERNO (aplicado fuera de la app, ej. con material oficial)
+  resultadoManual Json?    // puntuación directa/percentil introducidos por la profesional
+  informeAdjuntoUrl String?
+
+  // Interpretación clínica (siempre la introduce la profesional)
+  interpretacionClinica String?
+  interpretadoEn  DateTime?
+
+  @@map("tests_respuestas")
+}
+
+// ------------------------------------------------------------
+// Técnicas / contenido asignado
+// ------------------------------------------------------------
+
+model TecnicaBiblioteca {
+  id          String   @id @default(cuid())
+  titulo      String
+  descripcion String
+  contenidoUrl String?
+  creadaEn    DateTime @default(now())
+
+  asignaciones TecnicaAsignada[]
+
+  @@map("tecnicas_biblioteca")
+}
+
+model TecnicaAsignada {
+  id            String   @id @default(cuid())
+  pacienteId    String
+  paciente      Paciente @relation(fields: [pacienteId], references: [id])
+  tecnicaId     String
+  tecnica       TecnicaBiblioteca @relation(fields: [tecnicaId], references: [id])
+
+  asignadaEn    DateTime @default(now())
+  completadaEn  DateTime?
+  notaProfesional String?
+
+  @@map("tecnicas_asignadas")
+}
+
+// ------------------------------------------------------------
+// Auditoría (obligatoria para trazabilidad RGPD)
+// ------------------------------------------------------------
+
+model LogAcceso {
+  id          String   @id @default(cuid())
+  usuarioId   String
+  usuario     Usuario  @relation(fields: [usuarioId], references: [id])
+  accion      String   // ej. "VER_FICHA_PACIENTE", "DESCARGAR_CONSENTIMIENTO"
+  entidad     String?  // ej. "Paciente:xxxx"
+  ip          String?
+  creadoEn    DateTime @default(now())
+
+  @@map("logs_acceso")
+}
