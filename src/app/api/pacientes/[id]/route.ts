@@ -12,12 +12,13 @@ import { prisma } from "@/lib/prisma";
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const sesion = await obtenerSesion();
+  const { id } = await params;
 
   try {
-    requierePropioPaciente(sesion, params.id);
+    requierePropioPaciente(sesion, id);
   } catch (err) {
     return NextResponse.json({ error: "No autorizado" }, { status: 403 });
   }
@@ -25,13 +26,13 @@ export async function GET(
   await registrarAcceso({
     usuarioId: sesion?.id ?? "desconocido",
     accion: "VER_FICHA_PACIENTE",
-    entidad: `Paciente:${params.id}`,
+    entidad: `Paciente:${id}`,
   });
 
   const paciente = await prisma.paciente.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
-      citas: { orderBy: { fechaHora: "desc" } },
+      notasSesion: { orderBy: { fecha: "desc" } },
       consentimientosFirmados: true,
       testsRespuestas: { include: { test: true } },
       tecnicasAsignadas: { include: { tecnica: true } },

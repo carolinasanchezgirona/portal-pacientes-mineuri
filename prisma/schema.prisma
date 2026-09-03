@@ -39,6 +39,11 @@ model Usuario {
   @@map("usuarios")
 }
 
+enum OrigenPaciente {
+  APP_MINEURI       // llega entrenando cognitivamente en la app
+  CONSULTA_EXTERNA  // paciente de consulta privada, ajeno a la app
+}
+
 model Paciente {
   id              String   @id @default(cuid())
   usuarioId       String   @unique
@@ -49,6 +54,14 @@ model Paciente {
   fechaNacimiento DateTime?
   telefono        String?
 
+  // Origen y participación — mismo modelo de paciente siempre;
+  // esto es un dato que se ajusta, nunca requiere migrar nada.
+  // Un paciente puede empezar en un origen y sumar el otro con el
+  // tiempo (ej. paciente de consulta que empieza a usar también
+  // los ejercicios cognitivos de la app).
+  origen                  OrigenPaciente @default(CONSULTA_EXTERNA)
+  usaEntrenamientoCognitivo Boolean      @default(false)
+
   // Invitación (alta manual por la profesional)
   invitacionToken   String?  @unique
   invitacionEnviada DateTime?
@@ -56,7 +69,6 @@ model Paciente {
 
   creadoEn        DateTime @default(now())
 
-  citas               Cita[]
   consentimientosFirmados ConsentimientoFirmado[]
   testsRespuestas     TestRespuesta[]
   tecnicasAsignadas   TecnicaAsignada[]
@@ -66,67 +78,23 @@ model Paciente {
 }
 
 // ------------------------------------------------------------
-// Agenda / Citas
+// Notas de seguimiento
+//
+// Nota de diseño: las citas y la agenda viven en
+// carolinasanchezgirona.com (sistema ya existente y en uso),
+// no en Mineuri. El portal de pacientes de Mineuri gestiona
+// tests, consentimientos y seguimiento — tanto de pacientes que
+// llegan desde Mineuri como de pacientes externos de consulta.
+// Por eso NotaSesion cuelga directamente del paciente, con su
+// propia fecha, sin depender de un modelo Cita.
 // ------------------------------------------------------------
-
-enum ModalidadCita {
-  PRESENCIAL
-  ONLINE
-}
-
-enum EstadoCita {
-  CONFIRMADA
-  CANCELADA
-  COMPLETADA
-  NO_ASISTIO
-}
-
-model DisponibilidadRecurrente {
-  id            String   @id @default(cuid())
-  diaSemana     Int      // 0 = domingo ... 6 = sábado
-  horaInicio    String   // "10:00"
-  horaFin       String   // "14:00"
-  modalidades   ModalidadCita[]
-  activo        Boolean  @default(true)
-
-  @@map("disponibilidad_recurrente")
-}
-
-model BloqueoAgenda {
-  id        String   @id @default(cuid())
-  fechaInicio DateTime
-  fechaFin    DateTime
-  motivo      String?
-
-  @@map("bloqueos_agenda")
-}
-
-model Cita {
-  id            String        @id @default(cuid())
-  pacienteId    String
-  paciente      Paciente      @relation(fields: [pacienteId], references: [id])
-
-  fechaHora     DateTime
-  duracionMin   Int           @default(45)
-  modalidad     ModalidadCita
-  estado        EstadoCita    @default(CONFIRMADA)
-  enlaceVideollamada String?
-  direccion     String?
-
-  creadaEn      DateTime      @default(now())
-  canceladaEn   DateTime?
-  notaSesion    NotaSesion?
-
-  @@map("citas")
-}
 
 model NotaSesion {
   id        String   @id @default(cuid())
-  citaId    String   @unique
-  cita      Cita     @relation(fields: [citaId], references: [id])
   pacienteId String
   paciente  Paciente @relation(fields: [pacienteId], references: [id])
 
+  fecha     DateTime @default(now())
   contenido String   // notas clínicas privadas, solo visibles por la profesional
   visibleParaPaciente Boolean @default(false)
   creadaEn  DateTime @default(now())

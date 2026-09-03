@@ -33,9 +33,33 @@ src/
 
 ## Decisiones ya tomadas (no reabrir sin motivo)
 
+- **Citas y agenda: el paciente reserva en carolinasanchezgirona.com**
+  (sistema ya existente y en uso real), pero **la gestión de esas citas
+  la hace Carolina desde dentro de Mineuri** (`/citas` en el panel
+  profesional), para centralizar su trabajo en un único sitio con un
+  único login. Esta sección es **exclusiva de Carolina** — no forma
+  parte del producto multiusuario de Mineuri; cuando otros
+  profesionales se suscriban, no la verán.
+  - Los datos de citas siguen viviendo en su propio proyecto Supabase
+    (`portal-pacientes`, id `grgyvdxkjdstdyumdfyg`), separado de la
+    base de datos de Mineuri (Neon)
+  - Mineuri se conecta a esa base de datos por detrás, usando la
+    `service_role key` guardada solo en el servidor
+    (`CITAS_SUPABASE_SERVICE_ROLE_KEY`) — nunca se expone al navegador
+  - Todas las citas (nuevas o de pacientes existentes, manuales o desde
+    la web) usan un flujo unificado: quedan "pendientes" hasta que el
+    propio paciente confirma con un clic en un enlace de su email
+    (función `confirm-booking` en Supabase Edge Functions)
 - Alta de paciente: solo por invitación de la profesional, no registro libre
-- Citas: confirmación automática al reservar; modalidad presencial u online
-  según el hueco elegido
+- El portal de Mineuri gestiona: tests, consentimientos, seguimiento y
+  notas de sesión — tanto de pacientes que llegan desde Mineuri como de
+  pacientes externos de consulta privada
+- **Un único modelo de paciente siempre.** El origen (`origen`:
+  `APP_MINEURI` / `CONSULTA_EXTERNA`) y si usa entrenamiento cognitivo
+  (`usaEntrenamientoCognitivo`) son datos que se ajustan en la ficha del
+  paciente, nunca requieren migrar nada entre sistemas. Un paciente de
+  consulta puede empezar a usar la app más adelante sin crear una ficha
+  nueva.
 - Tests: se distingue `PROPIO_DIGITAL` (autopuntuable, con ítems y baremo
   propios) de `COMERCIAL_EXTERNO` (aplicado fuera de la app con material
   con copyright; solo se registra el resultado final, nunca el contenido
