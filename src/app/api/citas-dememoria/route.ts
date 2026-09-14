@@ -1,8 +1,44 @@
 import { NextResponse } from "next/server";
 import { obtenerSesion, requiereProfesional } from "@/lib/auth";
 import { citasSupabase } from "@/lib/citasSupabase";
+import { prisma } from "@/lib/prisma";
 
-// GET /api/citas-dememoria — lista de próximas citas + índice de pacientes
+type PacienteVinculado = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+};
+
+function normalizar(value: string | null | undefined): string {
+  return (value ?? "").trim().toLocaleLowerCase("es");
+}
+
+async function obtenerPacientesVinculados(): Promise<PacienteVinculado[]> {
+  try {
+    const pacientes = await prisma.paciente.findMany({
+      select: {
+        id: true,
+        nombre: true,
+        apellidos: true,
+        telefono: true,
+        usuario: { select: { email: true } },
+      },
+    });
+
+    return pacientes.map((paciente) => ({
+      id: paciente.id,
+      name: `${paciente.nombre} ${paciente.apellidos}`.trim(),
+      email: paciente.usuario.email,
+      phone: paciente.telefono,
+    }));
+  } catch {
+    // La agenda debe seguir operativa aunque la base clínica esté temporalmente inaccesible.
+    return [];
+  }
+}
+
+// GET /api/citas-dememoria — agenda real + vínculo seguro con las fichas del portal
 export async function GET() {
   const sesion = await obtenerSesion();
   try {
@@ -11,10 +47,12 @@ export async function GET() {
     return NextResponse.json({ error: "No autorizado" }, { status: 403 });
   }
 
-  // Recuento total de citas por paciente (todas, no canceladas)
-  const { data: allBookings, error: countError } = await citasSupabase
-    .from("appointment_bookings")
-    .select("patient_name, patient_email, patient_phone, status");
+  const [{ data: allBookings, error: countError }, pacientesVinculados] = await Promise.all([
+    citasSupabase
+      .from("appointment_bookings")
+      .select("patient_name, patient_email, patient_phone, status"),
+    obtenerPacientesVinculados(),
+  ]);
 
   if (countError) {
     return NextResponse.json({ error: countError.message }, { status: 500 });
@@ -23,12 +61,13 @@ export async function GET() {
   const countsByName = new Map<string, number>();
   const patientsIndex = new Map<string, { email: string | null; phone: string | null }>();
 
-  allBookings?.forEach((b) => {
-    if (b.patient_email === "bloqueo@agenda.interno") return;
-    const key = b.patient_name.trim();
-    patientsIndex.set(key, { email: b.patient_email, phone: b.patient_phone });
-    if (b.status === "cancelled" || b.status === "canceled") return;
-    countsByName.set(key.toLowerCase(), (countsByName.get(key.toLowerCase()) || 0) + 1);
+  allBookings?.forEach((booking) => {
+    if (booking.patient_email === "bloqueo@agenda.interno") return;
+    const name = booking.patient_name.trim();
+    patientsIndex.set(name, { email: booking.patient_email, phone: booking.patient_phone });
+    if (booking.status === "cancelled" || booking.status === "canceled") return;
+    const key = normalizar(name);
+    countsByName.set(key, (countsByName.get(key) || 0) + 1);
   });
 
   const { data: upcoming, error } = await citasSupabase
@@ -36,14 +75,31 @@ export async function GET() {
     .select("*")
     .gte("starts_at", new Date(Date.now() - 24 * 3600 * 1000).toISOString())
     .order("starts_at", { ascending: true })
-    .limit(50);
+    .limit(100);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  const linkedByEmail = new Map(
+    pacientesVinculados.map((patient) => [normalizar(patient.email), patient.id])
+  );
+  const linkedByPhone = new Map(
+    pacientesVinculados
+      .filter((patient) => patient.phone)
+      .map((patient) => [normalizar(patient.phone), patient.id])
+  );
+
+  const bookings = (upcoming ?? []).map((booking) => ({
+    ...booking,
+    portal_patient_id:
+      linkedByEmail.get(normalizar(booking.patient_email)) ??
+      linkedByPhone.get(normalizar(booking.patient_phone)) ??
+      null,
+  }));
+
   return NextResponse.json({
-    bookings: upcoming,
+    bookings,
     counts: Object.fromEntries(countsByName),
     patients: Array.from(patientsIndex.entries()).map(([name, contact]) => ({
       name,
@@ -54,8 +110,8 @@ export async function GET() {
 
 type NuevaCitaInput = {
   patientName: string;
-  contact: string; // email o teléfono
-  startsAtIso: string; // ya combinado fecha+hora, en ISO
+  contact: string;
+  startsAtIso: string;
   durationMinutes: number;
   recurring?: { intervalDays: number; count: number };
 };
@@ -93,8 +149,12 @@ export async function POST(request: Request) {
 
   const isEmail = contact.includes("@");
   const baseStart = new Date(startsAtIso);
+  if (Number.isNaN(baseStart.getTime())) {
+    return NextResponse.json({ error: "Fecha u hora no válida" }, { status: 400 });
+  }
+
   const intervalDays = body.recurring?.intervalDays ?? 0;
-  const count = body.recurring?.count ?? 1;
+  const count = Math.min(Math.max(body.recurring?.count ?? 1, 1), 26);
 
   let created = 0;
   let skipped = 0;
