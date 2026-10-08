@@ -35,6 +35,7 @@ model Usuario {
 
   paciente      Paciente?      // solo si rol = PACIENTE
   logsAcceso    LogAcceso[]
+  enlacesAcceso EnlaceAcceso[]
 
   @@map("usuarios")
 }
@@ -239,4 +240,17 @@ model LogAcceso {
   creadoEn    DateTime @default(now())
 
   @@map("logs_acceso")
+}
+
+// Enlaces de inicio de sesión de pacientes (hash, nunca token original)
+model EnlaceAcceso {
+  id        String   @id @default(cuid())
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  creadoEn  DateTime @default(now())
+  expiraEn  DateTime
+
+  @@index([usuarioId, creadoEn])
+  @@map("enlaces_acceso")
 }
