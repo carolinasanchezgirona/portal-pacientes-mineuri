@@ -115,20 +115,15 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="field">
-            <label htmlFor="password">Contraseña</label>
-            <input
-              id="password"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-
-          }
-          {enviado && <p role="status">Si tu cuenta de paciente está activa, recibirás un correo con el enlace de acceso. Comprueba también la carpeta de spam.</p>}\n          {error && (
+          {modoProfesional && (
+            <div className="field">
+              <label htmlFor="password">Contraseña</label>
+              <input id="password" type="password" value={password}
+                onChange={(e) => setPassword(e.target.value)} required={modoProfesional} />
+            </div>
+          )}
+          {enviado && <p role="status">Si tu cuenta de paciente está activa, recibirás un correo con el enlace de acceso. Comprueba también la carpeta de spam.</p>}
+          {error && (
             <p className={styles.errorText} role="alert">
               {error}
             </p>
@@ -140,6 +135,9 @@ export default function LoginPage() {
             disabled={cargando}
           >
             {cargando ? "Procesando..." : modoProfesional ? "Entrar" : "Enviarme un enlace seguro"}
+          </button>
+          <button type="button" onClick={() => { setModoProfesional(!modoProfesional); setError(null); setEnviado(false); }} style={{ marginTop: 20, background: "none", border: 0, textDecoration: "underline", cursor: "pointer" }}>
+            {modoProfesional ? "Volver al acceso de pacientes" : "Acceso para profesionales"}
           </button>
         </form>
       </div>
