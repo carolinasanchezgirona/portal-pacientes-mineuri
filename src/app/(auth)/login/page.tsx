@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
@@ -12,6 +12,38 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
+  const [enviado, setEnviado] = useState(false);
+  const [modoProfesional, setModoProfesional] = useState(false);
+
+  useEffect(() => {
+    const fragmento = new URLSearchParams(window.location.hash.slice(1));
+    const token = fragmento.get("acceso");
+    if (!token) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    setCargando(true);
+    signIn("patient-link", { token, redirect: false }).then((resultado) => {
+      if (resultado?.error) setError("El enlace ha caducado o ya se ha utilizado. Solicita otro.");
+      else { router.push("/mi-area"); router.refresh(); }
+    }).catch(() => setError("No se ha podido completar el acceso.")).finally(() => setCargando(false));
+  }, [router]);
+
+  async function solicitarEnlace(e: React.FormEvent) {
+    e.preventDefault();
+    setCargando(true);
+    setError(null);
+    setEnviado(false);
+    try {
+      const response = await fetch("/api/auth/enlace", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se ha podido enviar el enlace.");
+      setEnviado(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Se ha producido un error.");
+    } finally { setCargando(false); }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -65,10 +97,10 @@ export default function LoginPage() {
       </div>
 
       <div className={styles.formWrap}>
-        <form className={styles.form} onSubmit={handleSubmit}>
-          <h2>Iniciar sesión</h2>
+        <form className={styles.form} onSubmit={modoProfesional ? handleSubmit : solicitarEnlace}>
+          <h2>{modoProfesional ? "Acceso profesional" : "Tu espacio Mineuri"}</h2>
           <p className={styles.formSub}>
-            Accede a tu área profesional o de paciente
+            {modoProfesional ? "Accede con tus credenciales profesionales" : "Introduce tu correo y te enviaremos un enlace seguro, sin códigos ni contraseñas"}
           </p>
 
           <div className="field">
@@ -83,18 +115,14 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="field">
-            <label htmlFor="password">Contraseña</label>
-            <input
-              id="password"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-
+          {modoProfesional && (
+            <div className="field">
+              <label htmlFor="password">Contraseña</label>
+              <input id="password" type="password" value={password}
+                onChange={(e) => setPassword(e.target.value)} required={modoProfesional} />
+            </div>
+          )}
+          {enviado && <p role="status">Si tu cuenta de paciente está activa, recibirás un correo con el enlace de acceso. Comprueba también la carpeta de spam.</p>}
           {error && (
             <p className={styles.errorText} role="alert">
               {error}
@@ -106,7 +134,10 @@ export default function LoginPage() {
             className={`btn-primary ${styles.submitBtn}`}
             disabled={cargando}
           >
-            {cargando ? "Entrando..." : "Entrar →"}
+            {cargando ? "Procesando..." : modoProfesional ? "Entrar" : "Enviarme un enlace seguro"}
+          </button>
+          <button type="button" onClick={() => { setModoProfesional(!modoProfesional); setError(null); setEnviado(false); }} style={{ marginTop: 20, background: "none", border: 0, textDecoration: "underline", cursor: "pointer" }}>
+            {modoProfesional ? "Volver al acceso de pacientes" : "Acceso para profesionales"}
           </button>
         </form>
       </div>
