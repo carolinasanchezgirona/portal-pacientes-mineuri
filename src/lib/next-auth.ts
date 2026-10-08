@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
@@ -10,6 +11,34 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     signIn: "/login",
   },
   providers: [
+    Credentials({
+      id: "patient-link",
+      name: "Enlace seguro para pacientes",
+      credentials: { token: {} },
+      async authorize(credentials) {
+        const token = credentials?.token;
+        if (typeof token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
+        const tokenHash = createHash("sha256").update(token).digest("hex");
+        const now = new Date();
+        const user = await prisma.$transaction(async (tx) => {
+          const link = await tx.enlaceAcceso.findUnique({
+            where: { tokenHash },
+            include: { usuario: { include: { paciente: true } } },
+          });
+          if (!link || link.expiraEn <= now) return null;
+          if (!link.usuario.activo || link.usuario.rol !== "PACIENTE" || !link.usuario.paciente) return null;
+          const consumed = await tx.enlaceAcceso.deleteMany({
+            where: { id: link.id, tokenHash, expiraEn: { gt: now } },
+          });
+          if (consumed.count !== 1) return null;
+          await tx.usuario.update({ where: { id: link.usuarioId }, data: { ultimoAcceso: now } });
+          return link.usuario;
+        });
+        if (!user?.paciente) return null;
+        await registrarAcceso({ usuarioId: user.id, accion: "LOGIN_PATIENT_LINK" });
+        return { id: user.id, email: user.email, rol: user.rol, pacienteId: user.paciente.id };
+      },
+    }),
     Credentials({
       credentials: {
         email: {},
